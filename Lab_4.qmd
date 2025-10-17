@@ -1,0 +1,60 @@
+---
+title: "Lab 4: Data is Delicious"
+author: "Maile Yamasaki"
+format:
+ html:
+   theme: cosmo
+   embed-resources: true
+execute:
+ echo: true
+---
+Github Link: 
+
+```{python}
+import re
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+```
+
+1. Data From Unstructured Website
+```{python}
+URL = "https://tastesbetterfromscratch.com/meal-plan-208/"
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+response = requests.get(URL, headers=HEADERS)
+
+response
+```
+
+```{python}
+soup = BeautifulSoup(response.content, "html.parser")
+
+rows = []
+for p in soup.find_all("p", {"class": "has-text-align-left"}):
+    strong = p.find("strong")               
+    a = p.find("a", href=True)             
+    if not strong or not a:
+        continue
+
+    day = strong.get_text(strip=True).rstrip(":")
+
+    name = a.get_text(strip=True)
+    link = a["href"]
+
+    text = p.get_text(" ", strip=True)
+    m = re.search(r"\$\s*\d+(?:\.\d{1,2})?", text)
+    price = m.group(0).replace(" ", "") if m else None
+
+    rows.append({
+        "Day of the Week": day,
+        "Name of Recipe": name,
+        "Link to Recipe": link,
+        "Price of Recipe": price
+    })
+    
+df = pd.DataFrame(rows)
+
+print(df.to_string(index=False))
+```
