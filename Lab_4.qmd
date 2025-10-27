@@ -11,13 +11,12 @@ execute:
 Github Link: 
 
 ```{python}
-import re
-import requests
+import requests, re
 import pandas as pd
 from bs4 import BeautifulSoup
 ```
 
-1. Data From Unstructured Website
+1.
 ```{python}
 URL = "https://tastesbetterfromscratch.com/meal-plan-208/"
 
@@ -57,4 +56,130 @@ for p in soup.find_all("p", {"class": "has-text-align-left"}):
 df = pd.DataFrame(rows)
 
 print(df.to_string(index=False))
+```
+
+2. 
+```{python}
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+url = "https://tasty.p.rapidapi.com/recipes/list"
+
+querystring = {"from":"0","size":"100","q":"lemon chicken pasta"}
+
+headers = {
+    "x-rapidapi-key": os.getenv("RAPIDAPI_KEY"),
+    "x-rapidapi-host": "tasty.p.rapidapi.com"
+}
+
+response = requests.get(url, headers=headers, params=querystring)
+
+lcp_recipes = pd.json_normalize(response.json(), "results")
+
+lcp = lcp_recipes[["canonical_id", "name", "num_servings", "nutrition.calories", "nutrition.carbohydrates", "nutrition.fat", "nutrition.fiber", "nutrition.protein", "nutrition.sugar", "price.portion", "price.total"]]
+
+lcp
+```
+
+3. 
+```{python}
+def get_mealplan_data(plan_id): 
+    if plan_id <= 100 or plan_id >= 210:
+        exit("enter a number between 100 and 210")
+        
+    def get_weekly_plan(plan_id):
+        URL = f"https://tastesbetterfromscratch.com/meal-plan-{plan_id}/"
+        HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(URL, headers=HEADERS)
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        rows = []
+        for p in soup.find_all("p", {"class": "has-text-align-left"}):
+            day_name = p.find("strong")
+            if not day_name:
+                continue
+            day = day_name.get_text(strip=True).replace(":", "")
+
+            recipe_name = p.find("a")
+            if not recipe_name:
+                continue
+            recipe = recipe_name.get_text(strip=True)
+            recipe_link = recipe_name.get("href")
+
+            recipe_price = re.findall(r"\$\s*\d+(?:\.\d{1,2})?", str(p))
+            price = recipe_price[0] if recipe_price else None
+
+            rows.append({
+                "Day of the Week": day,
+                "Name of Recipe": recipe,
+                "Link to Recipe": recipe_link,
+                "Price of Recipe": price
+            })
+        return pd.DataFrame(rows)
+
+    def match_recipe(r):
+        url = "https://tasty.p.rapidapi.com/recipes/list"
+        querystring = {"from": "0", "size": "20", "q": r}
+        headers = {
+            "x-rapidapi-key": "a30f810a12mshae9411ac99151dap1b6d43jsn701a23bb8000",
+            "x-rapidapi-host": "tasty.p.rapidapi.com"
+        }
+        response = requests.get(url, headers=headers, params=querystring)
+        data = response.json()
+        
+        if "results" not in data or len(data["results"]) == 0:
+            return pd.DataFrame()
+        else:
+            r_recipes = pd.json_normalize(data, "results")
+            cols = [
+                "canonical_id", "name", "num_servings",
+                "nutrition.calories", "nutrition.carbohydrates",
+                "nutrition.fat", "nutrition.fiber", "nutrition.protein",
+                "nutrition.sugar", "price.portion", "price.total"
+            ]
+            r_recipes = r_recipes[[c for c in cols if c in r_recipes.columns]]
+            r_recipes["Name of Recipe"] = r
+            return r_recipes
+
+    df = get_weekly_plan(plan_id)
+
+    rec_match = pd.DataFrame()
+    for i in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]:
+        match = df.loc[df["Day of the Week"] == i, "Name of Recipe"]
+        if not match.empty:
+            y = match.iloc[0]
+            rec_match = pd.concat([rec_match, match_recipe(y)], ignore_index=True)
+
+    total_df = df.merge(rec_match, on="Name of Recipe", how="left")
+    return total_df
+```
+```{python}
+df = get_mealplan_data(202)
+df
+```
+
+4.
+```{python}
+meats = ["chicken", "beef", "pork", "turkey", "bacon", "ham", "sausage", "steak", "lamb", "fish", "salmon", "tuna", "shrimp", "crab", "lobster", "pepperoni", "prosciutto", "chorizo", "meatball"]
+
+df["Vegetarian"] = df["Name of Recipe"].apply(lambda name: "No" if any(meat in name.lower() for meat in meats) else "Yes")
+
+df[["Day of the Week", "Name of Recipe", "Vegetarian"]].head()
+```
+
+5. 
+```{python}
+from plotnine import ggplot, geom_point, aes, labs
+
+(ggplot(df,
+aes(
+  x = "nutrition.calories",
+  y = "nutrition.protein",
+  color = "Vegetarian"
+))
++ geom_point()
+ +labs(x = "Calories", y = "Protein")
+)
 ```
